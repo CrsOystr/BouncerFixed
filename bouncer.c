@@ -4,23 +4,40 @@
 
 */
 
-#include <stdio.h>
-//#include <ffmpeg/avutil.h>
-#include "libavformat/avformat.h"
-#include "libavutil/avutil.h"
-#include "libavcodec/avcodec.h"
 
+//#include <ffmpeg/avutil.h>
+#include "libavcodec/avcodec.h"
+#include "libavformat/avformat.h"
+#include <stdio.h>
 
 
 int main(int argc, char *argv[])
 {
-
+  AVFormatContext *pFormatCtx;
+  int             i, videoStream;
+  AVCodecContext  *pCodecCtx;
+  AVCodec         *pCodec;
+  AVFrame         *pFrame; 
+  AVFrame         *pFrameRGB;
+  AVPacket        packet;
+  int             frameFinished;
+  int             numBytes;
+  uint8_t         *buffer;
+  
+  if(argc < 2) {
+    printf("Please provide an image file as an arguement\n");
+    return -1;
+  }
+  // Register all formats and codecs
   av_register_all();
-  printf("lol\ntesting\n");
+  
+  
+ 
 
-  AVFrame frame;
-  int64_t res;
 
+
+
+  printf("TESTIING IS DOING SOMETHING?\n");
   return 0;
 }
 
