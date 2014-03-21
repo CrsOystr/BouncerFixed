@@ -81,8 +81,7 @@ AVFrame* load_frame(char* file_name)
       return NULL;
     }
   // Determine required buffer size and allocate buffer
-  numBytes=avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width,
-pCodecCtx->height);
+  numBytes=avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
  
   buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
 
@@ -105,12 +104,18 @@ pCodecCtx->height);
 
 
 
-
-
   return pFrameRGB;
 }
 
 
+AVFrame* draw_ball(AVFrame *input)
+{
+  AVFrame *output;
+  
+  
+  
+  return input;
+}
 
 
 /*
@@ -156,10 +161,9 @@ AVFrame* convert(AVFrame *frame, int format)
       NULL,
       NULL
      );
-
+  
   //Fills Pic to Prepare
-   avpicture_fill((AVPicture *)outputFrame, buffer, PIX_FMT_RGB24,
-  frame->width, frame->height);
+  avpicture_fill((AVPicture *)outputFrame, buffer, PIX_FMT_RGB24, frame->width, frame->height);
 
    sws_scale
      (
@@ -172,8 +176,18 @@ AVFrame* convert(AVFrame *frame, int format)
       outputFrame->linesize
       );
 
+
+   printf("convert height %i \n", outputFrame->height);
   return outputFrame;
 }
+
+/*
+write frame
+
+
+
+
+ */
 
 int writeFrame( AVFrame* input, int frameNumber)
 {
@@ -182,22 +196,52 @@ int writeFrame( AVFrame* input, int frameNumber)
   FILE           *f;
   AVFrame        *frame;
   AVPacket        pkt;
-  char          *fileName;
-
+  char           *fileName;
+  char           *test;
+  int            got_output, ret, y;
   
   codec = avcodec_find_encoder_by_name("xkcd");
+
+  frame = av_frame_alloc();   
+  CodecCtx = avcodec_alloc_context3(codec);
+
   CodecCtx->pix_fmt = codec->pix_fmts[0];
-  
+  CodecCtx->height = input->height;
+  CodecCtx->width = input->width;
+  CodecCtx->bit_rate = 400000;
+  printf("codec context height in write frame%i\n", input->height);
+
+  avcodec_open2(CodecCtx, codec, NULL); 
+
   frame = convert(input, codec->pix_fmts[0]);
 
-  fileName = "output%i", frameNumber;
+  sprintf(fileName, "output%i.xkcd", frameNumber);
 
   f = fopen(fileName, "wb");
+   
+  av_init_packet(&pkt);
+      pkt.data = NULL;
+      pkt.size = 0;
 
+  ret = 0;
+  
+  ret = avcodec_encode_video2(CodecCtx, &pkt, input, &got_output);
+
+  if(ret < 0)
+    {
+      fprintf(stderr,"encode failed");
+    }
+
+  printf("test \n");
+  if(got_output)
+    {
+      fwrite(pkt.data, 1, pkt.size, f);
+      av_free_packet(&pkt);
+    }
+
+  /**/
 
 }
-
-
 
 
 
@@ -209,6 +253,7 @@ int writeFrame( AVFrame* input, int frameNumber)
 int main(int argc, char *argv[])
 {
   AVFrame *user_image;
+  AVFrame *temp;
   int i;
 
   //checks to confirm there is an arguement for us to accept
@@ -224,7 +269,10 @@ int main(int argc, char *argv[])
   
   for(i=0; i < 10; i++)
     {
-      writeFrame(user_image, i);
+      AVFrame *copy = convert(user_image, PIX_FMT_RGB24);
+      //temp = draw_ball(user_image);
+      // writeFrame(temp, i);
+      writeFrame(copy, i);
     }
 
   //Ends program and confirms we did something
