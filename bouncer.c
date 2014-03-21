@@ -1,10 +1,9 @@
  /*
-   written by Nicolas Metz and James Bradshaw. Spring 2014
+written by Nicolas Metz and James Bradshaw. Spring 2014
 
-   Bouncer application used to overlay gradient ball to image files in conjunction with ffmpeg
-   
-   Some annoted code used from dranger ffmpeg tutorial
- */
+Bouncer application used to overlay gradient ball to image files in conjunction with ffmpeg
+Some annoted code used from dranger ffmpeg tutorial
+*/
 
 #include "libavutil/avutil.h"
 #include "libavcodec/avcodec.h"
@@ -20,12 +19,14 @@ AVFrame* load_frame(char* file_name)
   int i, videoStream, numBytes;
   AVCodecContext *pCodecCtx = NULL;
   AVCodec *pCodec = NULL;
+  AVFrame *pFrame = NULL; 
   AVFrame *pFrameRGB = NULL;
   uint8_t *buffer = NULL;
   AVPacket packet;
   int frameFinished;
 
   AVDictionary *optionsDict = NULL;
+  struct SwsContext      *sws_ctx = NULL;
   
   av_register_all();
   
@@ -39,7 +40,7 @@ AVFrame* load_frame(char* file_name)
   if(avformat_find_stream_info(pFormatCtx, NULL)<0)
     {
       printf("couldnt find stream info");
-      return NULL; 
+      return NULL;
     }
 
   // Find the first video stream
@@ -52,7 +53,7 @@ AVFrame* load_frame(char* file_name)
   if(videoStream==-1)
     {
       printf("couldnt find video stream\n");
-      return NULL; 
+      return NULL;
     }
   
   // Get a pointer to the codec context for the video stream
@@ -63,7 +64,7 @@ AVFrame* load_frame(char* file_name)
   if(pCodec==NULL)
  {
     printf("Unsupported codec!\n");
-    return NULL; 
+    return NULL;
   }
 
   // Open codec
@@ -85,9 +86,26 @@ AVFrame* load_frame(char* file_name)
  
   buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
 
-  pFrameRGB->width = pCodecCtx->width;
-  pFrameRGB->height = pCodecCtx->height;
-  pFrameRGB->format = pCodecCtx->pix_fmt;
+   sws_ctx =
+    sws_getContext
+    (
+        pCodecCtx->width,
+        pCodecCtx->height,
+        pCodecCtx->pix_fmt,
+        pCodecCtx->width,
+        pCodecCtx->height,
+        PIX_FMT_RGB24,
+        SWS_BILINEAR,
+        NULL,
+        NULL,
+        NULL
+    );
+
+   avpicture_fill((AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
+  
+   pFrame = av_frame_alloc();
+
+  //pFrameRGB->format = pCodecCtx->pix_fmt;
  
   
   while(av_read_frame(pFormatCtx, &packet)>=0)
@@ -95,9 +113,24 @@ AVFrame* load_frame(char* file_name)
       // Is this a packet from the video stream?
       if(packet.stream_index==videoStream)
 	{
-	  // Decode video frame
-	  avcodec_decode_video2(pCodecCtx, pFrameRGB, &frameFinished,
-				&packet);
+// Decode video frame
+	  avcodec_decode_video2(pCodecCtx, pFrameRGB, &frameFinished,&packet);
+	  if(frameFinished) {
+// Convert the image from its native format to RGB
+	    sws_scale
+	      (
+	         sws_ctx,
+	         (uint8_t const * const *)pFrame->data,
+	         pFrame->linesize,
+	         0,
+	         pCodecCtx->height,
+	         pFrameRGB->data,
+	         pFrameRGB->linesize
+	      );
+
+// Save the frame to disk
+	      writeFrame(pFrameRGB, 1);
+	  }
 	}
       av_free_packet(&packet);
     }
@@ -108,9 +141,24 @@ AVFrame* load_frame(char* file_name)
 }
 
 
-AVFrame* draw_ball(AVFrame *input)
+AVFrame* draw_ball(AVFrame *input, int frame_num)
 {
-  AVFrame *output;
+  int f_height, f_width;
+  int ball_x,ball_y;
+    
+  f_height = 480;
+  f_width = 640;
+  ball_x = f_width/2;
+  //ball_y = (abs((frame_num%60)-30) + 50) * (f_height/40 - 25);
+  ball_y = frame_num*5 + 50;
+
+  
+  for (f_height = -25; f_height <50; f_height++)
+    {
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + f_height] = 0;
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 1 + f_height] = 0;
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 2 + f_height] = 0;
+    }
   
   
   
@@ -124,15 +172,13 @@ AVFrame* draw_ball(AVFrame *input)
 
 
 
- */
+*/
 AVFrame* convert(AVFrame *frame, int format)
 {
-  int                 numBytes;
-  AVFrame            *outputFrame = NULL;
-  struct SwsContext  *sws_ctx = NULL;
-  uint8_t            *buffer = NULL;
-
-
+  int numBytes;
+  AVFrame *outputFrame = NULL;
+  struct SwsContext *sws_ctx = NULL;
+  uint8_t *buffer = NULL;
 
   // Allocate an AVFrame structure
   outputFrame=av_frame_alloc();
@@ -142,9 +188,9 @@ AVFrame* convert(AVFrame *frame, int format)
       return NULL;
     }
 
-  numBytes = avpicture_get_size(PIX_FMT_RGB24, frame->width, frame->height);
+  numBytes = avpicture_get_size(format, frame->width, frame->height);
 
-  buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));   
+  buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
 
   printf("lolololformat %i\n", frame->height);
   
@@ -155,7 +201,7 @@ AVFrame* convert(AVFrame *frame, int format)
       frame->format,
       frame->width,
       frame->height,
-      PIX_FMT_RGB24,
+      format,
       SWS_BILINEAR,
       NULL,
       NULL,
@@ -163,7 +209,7 @@ AVFrame* convert(AVFrame *frame, int format)
      );
   
   //Fills Pic to Prepare
-  avpicture_fill((AVPicture *)outputFrame, buffer, PIX_FMT_RGB24, frame->width, frame->height);
+  avpicture_fill((AVPicture *)outputFrame, buffer, format, frame->width, frame->height);
 
    sws_scale
      (
@@ -176,9 +222,12 @@ AVFrame* convert(AVFrame *frame, int format)
       outputFrame->linesize
       );
 
+   outputFrame->width = frame->width;
+   outputFrame->height = frame->height;
+
 
    printf("convert height %i \n", outputFrame->height);
-  return outputFrame;
+   return outputFrame;
 }
 
 /*
@@ -187,22 +236,22 @@ write frame
 
 
 
- */
+*/
 
 int writeFrame( AVFrame* input, int frameNumber)
 {
-  AVCodec        *codec;
+  AVCodec *codec;
   AVCodecContext *CodecCtx;
-  FILE           *f;
-  AVFrame        *frame;
-  AVPacket        pkt;
-  char           *fileName;
-  char           *test;
-  int            got_output, ret, y;
+  FILE *f;
+  AVFrame *frame;
+  AVPacket pkt;
+  char *fileName;
+  char *test;
+  int got_output, ret, y;
   
   codec = avcodec_find_encoder_by_name("xkcd");
 
-  frame = av_frame_alloc();   
+  frame = av_frame_alloc();
   CodecCtx = avcodec_alloc_context3(codec);
 
   CodecCtx->pix_fmt = codec->pix_fmts[0];
@@ -211,11 +260,12 @@ int writeFrame( AVFrame* input, int frameNumber)
   CodecCtx->bit_rate = 400000;
   printf("codec context height in write frame%i\n", input->height);
 
-  avcodec_open2(CodecCtx, codec, NULL); 
+  avcodec_open2(CodecCtx, codec, NULL);
 
   frame = convert(input, codec->pix_fmts[0]);
 
-  sprintf(fileName, "output%i.xkcd", frameNumber);
+  printf("LOOK AT ME %i\n", codec->pix_fmts[0]);
+  sprintf(fileName, "output%03i.xkcd", frameNumber);
 
   f = fopen(fileName, "wb");
    
@@ -225,7 +275,7 @@ int writeFrame( AVFrame* input, int frameNumber)
 
   ret = 0;
   
-  ret = avcodec_encode_video2(CodecCtx, &pkt, input, &got_output);
+  ret = avcodec_encode_video2(CodecCtx, &pkt, frame, &got_output);
 
   if(ret < 0)
     {
@@ -267,12 +317,12 @@ int main(int argc, char *argv[])
   user_image = load_frame(argv[1]);
   
   
-  for(i=0; i < 10; i++)
+  for(i=0; i < 5; i++)
     {
-      AVFrame *copy = convert(user_image, PIX_FMT_RGB24);
-      //temp = draw_ball(user_image);
-      // writeFrame(temp, i);
-      writeFrame(copy, i);
+      //AVFrame *copy = convert(user_image, PIX_FMT_RGB24);
+      //temp = draw_ball(user_image, i);
+      writeFrame(user_image, i);
+       // writeFrame(copy, i);
     }
 
   //Ends program and confirms we did something
