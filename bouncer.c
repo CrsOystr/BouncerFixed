@@ -1,98 +1,234 @@
- /* written by Nicolas Metz and James Bradshaw. Spring 2014
+ /*
+   written by Nicolas Metz and James Bradshaw. Spring 2014
 
    Bouncer application used to overlay gradient ball to image files in conjunction with ffmpeg
+   
+   Some annoted code used from dranger ffmpeg tutorial
+ */
 
-*/
-
-
-//#include <ffmpeg/avutil.h>
 #include "libavutil/avutil.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
+#include "libswscale/swscale.h"
 #include <stdio.h>
 
 
-int main(int argc, char *argv[])
+//FUNCTION TO RETRIEVE AVFRAME
+AVFrame* load_frame(char* file_name)
 {
-  AVFormatContext *pFormatCtx;
-  int             i,j,videoStream;
-  AVCodecContext  *pCodecCtx;
-  AVCodec         *pCodec;
-  AVFrame         *pFrame; 
-  AVFrame         *pFrameRGB;
-  AVPacket        packet;
-  int             frameFinished;
-  int             numBytes;
-  uint8_t         *buffer;
+  AVFormatContext *pFormatCtx = NULL;
+  int i, videoStream, numBytes;
+  AVCodecContext *pCodecCtx = NULL;
+  AVCodec *pCodec = NULL;
+  AVFrame *pFrameRGB = NULL;
+  uint8_t *buffer = NULL;
+  AVPacket packet;
+  int frameFinished;
+
+  AVDictionary *optionsDict = NULL;
   
-  if(argc < 2) {
-    printf("Please provide an image file as an arguement\n");
-    return -1;
-  }
-  // Register all formats and codecs
   av_register_all();
   
-  //set pointer to NULL
-  pFormatCtx = NULL;
+  if(avformat_open_input(&pFormatCtx, file_name, NULL, NULL)!=0)
+    {
+      printf("Couldnt Open File");
+      return NULL;
+    }
 
-  //open the input picture and assign it a Format Context
-  avformat_open_input(&pFormatCtx, argv[1], NULL, NULL);
+  // Retrieve stream information
+  if(avformat_find_stream_info(pFormatCtx, NULL)<0)
+    {
+      printf("couldnt find stream info");
+      return NULL; 
+    }
 
-  //find the video stream
-  videoStream = avformat_find_stream_info(pFormatCtx, NULL);
+  // Find the first video stream
+  videoStream=-1;
+  for(i=0; i<pFormatCtx->nb_streams; i++)
+    if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_VIDEO) {
+      videoStream=i;
+      break;
+    }
+  if(videoStream==-1)
+    {
+      printf("couldnt find video stream\n");
+      return NULL; 
+    }
+  
+  // Get a pointer to the codec context for the video stream
+  pCodecCtx=pFormatCtx->streams[videoStream]->codec;
+  
+  // Find the decoder for the video stream
+  pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
+  if(pCodec==NULL)
+ {
+    printf("Unsupported codec!\n");
+    return NULL; 
+  }
 
-  //get the codec context from the format at the given stream 
-  pCodecCtx = pFormatCtx->streams[videoStream]->codec;
+  // Open codec
+  if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
+    {
+      printf("Couldnt open codec");
+      return NULL;
+    }
+  
+  // Allocate an AVFrame structure
+  pFrameRGB=av_frame_alloc();
+  if(pFrameRGB==NULL)
+    {
+      printf("couldnt allocate frame");
+      return NULL;
+    }
+  // Determine required buffer size and allocate buffer
+  numBytes=avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width,
+pCodecCtx->height);
+ 
+  buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
 
-  //find the codec for the input image
-  pCodec = avcodec_find_decoder(pCodecCtx->codec_id);
-
-  //open the found codec
-  avcodec_open2(pCodecCtx, pCodec, NULL);
-
-  //allocate memory for two frames one for orignal input one for conversion
-  pFrame = av_frame_alloc();
-  pFrameRGB = av_frame_alloc();
-
-  //number of bytes contained in the image
-  numBytes = avpicture_get_size(PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
-
-  //allocate memory for the image buffer
-  buffer = (uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
-
-  // fill the picture from the buffer
-  avpicture_fill((AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24, pCodecCtx->width, pCodecCtx->height);
-
-  //read packet from frame
-  i=0;
+  pFrameRGB->width = pCodecCtx->width;
+  pFrameRGB->height = pCodecCtx->height;
+  pFrameRGB->format = pCodecCtx->pix_fmt;
+ 
   
   while(av_read_frame(pFormatCtx, &packet)>=0)
     {
-      if(packet.stream_index == videoStream)
+      // Is this a packet from the video stream?
+      if(packet.stream_index==videoStream)
 	{
-	  avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
-	  
-	  if(frameFinished)
-	    {
-	      img_convert((AVPicture *)pFrameRGB, PIX_FMT_RGB24, (AVPicture *)pFrame, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
-	      
-	      if(++i <= 5)
-		{
-		  //SaveFrame(pFrameRGB, pCodecCtx->width, pCodecCtx->height, i);
-		}
-	    }
+	  // Decode video frame
+	  avcodec_decode_video2(pCodecCtx, pFrameRGB, &frameFinished,
+				&packet);
 	}
-      
       av_free_packet(&packet);
-
     }
 
 
 
 
-  printf("%s : %i \n" , pFormatCtx->filename, videoStream);
 
-  printf("TESTIING IS DOING SOMETHING?\n");
+  return pFrameRGB;
+}
+
+
+
+
+/*
+
+
+
+
+
+ */
+AVFrame* convert(AVFrame *frame, int format)
+{
+  int                 numBytes;
+  AVFrame            *outputFrame = NULL;
+  struct SwsContext  *sws_ctx = NULL;
+  uint8_t            *buffer = NULL;
+
+
+
+  // Allocate an AVFrame structure
+  outputFrame=av_frame_alloc();
+  if(outputFrame==NULL)
+    {
+      printf("couldnt allocate frame");
+      return NULL;
+    }
+
+  numBytes = avpicture_get_size(PIX_FMT_RGB24, frame->width, frame->height);
+
+  buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));   
+
+  printf("lolololformat %i\n", frame->height);
+  
+  sws_ctx = sws_getContext
+     (
+      frame->width,
+      frame->height,
+      frame->format,
+      frame->width,
+      frame->height,
+      PIX_FMT_RGB24,
+      SWS_BILINEAR,
+      NULL,
+      NULL,
+      NULL
+     );
+
+  //Fills Pic to Prepare
+   avpicture_fill((AVPicture *)outputFrame, buffer, PIX_FMT_RGB24,
+  frame->width, frame->height);
+
+   sws_scale
+     (
+      sws_ctx,
+      (uint8_t const * const *)frame->data,
+      frame->linesize,
+      0,
+      frame->height,
+      outputFrame->data,
+      outputFrame->linesize
+      );
+
+  return outputFrame;
+}
+
+int writeFrame( AVFrame* input, int frameNumber)
+{
+  AVCodec        *codec;
+  AVCodecContext *CodecCtx;
+  FILE           *f;
+  AVFrame        *frame;
+  AVPacket        pkt;
+  char          *fileName;
+
+  
+  codec = avcodec_find_encoder_by_name("xkcd");
+  CodecCtx->pix_fmt = codec->pix_fmts[0];
+  
+  frame = convert(input, codec->pix_fmts[0]);
+
+  fileName = "output%i", frameNumber;
+
+  f = fopen(fileName, "wb");
+
+
+}
+
+
+
+
+
+/*MAIN ENTRY POINT TO APP
+
+
+
+*/
+int main(int argc, char *argv[])
+{
+  AVFrame *user_image;
+  int i;
+
+  //checks to confirm there is an arguement for us to accept
+  if(argc < 2)
+ {
+    printf("Please provide a .jpg image file as an arguement\n");
+    return -1;
+  }
+
+  //Loads frame using our function
+  user_image = load_frame(argv[1]);
+  
+  
+  for(i=0; i < 10; i++)
+    {
+      writeFrame(user_image, i);
+    }
+
+  //Ends program and confirms we did something
+  printf("TESTIING IS DOING SOMETHING?\nand we havnt segfaulted\n");
   return 0;
 }
 
