@@ -13,7 +13,7 @@ Some annoted code used from dranger ffmpeg tutorial
 
 
 //FUNCTION TO RETRIEVE AVFRAME
-AVFrame* load_frame(char* file_name)
+AVFrame* load_frame(char* file_name, int file_number)
 {
   AVFormatContext *pFormatCtx = NULL;
   int i, videoStream, numBytes;
@@ -129,7 +129,7 @@ AVFrame* load_frame(char* file_name)
 	      );
 
 // Save the frame to disk
-	      writeFrame(pFrameRGB, 1);
+	      writeFrame(pFrameRGB, file_number);
 	  }
 	}
       av_free_packet(&packet);
@@ -155,9 +155,9 @@ AVFrame* draw_ball(AVFrame *input, int frame_num)
   
   for (f_height = -25; f_height <50; f_height++)
     {
-      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + f_height] = 0;
-      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 1 + f_height] = 0;
-      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 2 + f_height] = 0;
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + f_height] = 255;
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 1 + f_height] = 255;
+      input->data[0][ball_x * 3 + ball_y * input->linesize[0] + 2 + f_height] = 255;
     }
   
   
@@ -243,7 +243,7 @@ int writeFrame( AVFrame* input, int frameNumber)
   AVCodec *codec;
   AVCodecContext *CodecCtx;
   FILE *f;
-  AVFrame *frame;
+  AVFrame *frame, *temp;
   AVPacket pkt;
   char *fileName;
   char *test;
@@ -262,7 +262,9 @@ int writeFrame( AVFrame* input, int frameNumber)
 
   avcodec_open2(CodecCtx, codec, NULL);
 
-  frame = convert(input, codec->pix_fmts[0]);
+  temp = draw_ball(input, frameNumber);
+
+  frame = convert(temp, codec->pix_fmts[0]);
 
   printf("LOOK AT ME %i\n", codec->pix_fmts[0]);
   sprintf(fileName, "output%03i.xkcd", frameNumber);
@@ -314,14 +316,15 @@ int main(int argc, char *argv[])
   }
 
   //Loads frame using our function
-  user_image = load_frame(argv[1]);
   
   
-  for(i=0; i < 5; i++)
+  
+  for(i=0; i < 50; i++)
     {
       //AVFrame *copy = convert(user_image, PIX_FMT_RGB24);
       //temp = draw_ball(user_image, i);
-      writeFrame(user_image, i);
+      user_image = load_frame(argv[1], i);
+      //      writeFrame(user_image, i);
        // writeFrame(copy, i);
     }
 
